@@ -75,35 +75,77 @@ def lemmatize_text(text):
 def load_russian_dataset():
     """
     Загрузка датасета на русском языке с Hugging Face.
-    Используется датасет для классификации новостей или отзывов.
+    Используется датасет отзывов о медицинских учреждениях.
     """
     print("Загрузка датасета...")
+    
+    # Попытка загрузить датасет отзывов о медицинских учреждениях через huggingface_hub
     try:
-        # Попытка загрузить датасет классификации новостей
-        dataset = load_dataset("ai-forever/ru_news_2020", split="train[:5000]")
-        print(f"Загружено {len(dataset)} примеров")
+        from huggingface_hub import hf_hub_download
+        import json
+        
+        print("Попытка загрузки датасета 'blinoff/medical_institutions_reviews'...")
+        # Скачиваем JSONL файл
+        file_path = hf_hub_download(
+            repo_id="blinoff/medical_institutions_reviews",
+            filename="medical_institutions_reviews.jsonl",
+            repo_type="dataset"
+        )
+        
+        # Читаем JSONL файл через pandas
+        df = pd.read_json(file_path, lines=True)
+        print(f"Загружено {len(df)} примеров")
         
         # Извлечение текстов и меток
         texts = []
         labels = []
         
-        for item in tqdm(dataset, desc="Обработка датасета"):
-            if 'text' in item and 'label' in item:
-                texts.append(item['text'])
-                labels.append(item['label'])
-            elif 'title' in item:
-                # Если есть только заголовки, используем их
-                texts.append(item['title'])
-                # Создаем фиктивные метки на основе категорий
-                if 'category' in item:
-                    labels.append(item['category'])
+        for _, row in tqdm(df.iterrows(), total=len(df), desc="Обработка датасета"):
+            # Датасет имеет поля: content (текст отзыва) и general (общая тональность)
+            if pd.notna(row.get('content')) and row.get('content'):
+                texts.append(str(row['content']))
+                # Используем поле 'general' для тональности
+                if pd.notna(row.get('general')) and row.get('general'):
+                    labels.append(str(row['general']))
                 else:
-                    labels.append('general')
+                    # Пропускаем примеры без метки
+                    continue
         
-        return texts, labels
+        if len(texts) > 0:
+            print(f"Успешно загружено {len(texts)} примеров с метками")
+            print(f"Уникальные метки: {set(labels)}")
+            return texts, labels
+        else:
+            raise ValueError("Не удалось извлечь данные из датасета")
     
     except Exception as e:
         print(f"Ошибка при загрузке датасета: {e}")
+        print("Попытка загрузить через datasets...")
+        
+        # Попытка через стандартный load_dataset
+        try:
+            dataset = load_dataset("blinoff/medical_institutions_reviews", trust_remote_code=True)
+            split_name = list(dataset.keys())[0]
+            data = dataset[split_name]
+            print(f"Используем сплит '{split_name}' с {len(data)} примерами")
+            
+            texts = []
+            labels = []
+            
+            for item in tqdm(data, desc="Обработка датасета"):
+                if 'content' in item and item['content']:
+                    texts.append(item['content'])
+                    if 'general' in item and item['general']:
+                        labels.append(item['general'])
+                    else:
+                        continue
+            
+            if len(texts) > 0:
+                print(f"Успешно загружено {len(texts)} примеров с метками")
+                return texts, labels
+        except Exception as e2:
+            print(f"Ошибка при загрузке через datasets: {e2}")
+        
         print("Создание синтетического датасета...")
         return create_synthetic_dataset()
 
